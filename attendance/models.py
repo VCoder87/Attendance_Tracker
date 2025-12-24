@@ -1,23 +1,5 @@
 from django.db import models
 from django.contrib.auth.models import User
-import uuid
-
-
-class AuthToken(models.Model):
-    """
-    Stores authentication tokens for users
-    """
-    user = models.OneToOneField(User, on_delete=models.CASCADE)
-    token = models.CharField(max_length=40, unique=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def save(self, *args, **kwargs):
-        if not self.token:
-            self.token = uuid.uuid4().hex
-        super().save(*args, **kwargs)
-
-    def __str__(self):
-        return f"{self.user.username} - token"
 
 
 class Student(models.Model):

@@ -1,72 +1,128 @@
 import json
+import jwt
+from datetime import datetime, timedelta
+
 from django.views import View
 from django.http import JsonResponse
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
+from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 
-from .models import Student, Attendance, AuthToken
+from .models import Student, Attendance
+
+def generate_access_token(user):
+    payload = {
+        "user_id": user.id,
+        "username": user.username,
+        "type": "access",
+        "iat": datetime.utcnow(),
+        "exp": datetime.utcnow() + timedelta(hours=1),
+    }
+    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm="HS256")
+
+
+def generate_refresh_token(user):
+    payload = {
+        "user_id": user.id,
+        "type": "refresh",
+        "iat": datetime.utcnow(),
+        "exp": datetime.utcnow() + timedelta(days=7),
+    }
+    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm="HS256")
 
 
 def get_authenticated_user(request):
-    auth_header = request.headers.get('Authorization')
+    auth_header = request.headers.get("Authorization")
 
-    if not auth_header or not auth_header.startswith("Token "):
+    if not auth_header or not auth_header.startswith("Bearer "):
         return None
 
-    token_value = auth_header.split(" ")[1]
+    token = auth_header.split(" ")[1]
 
     try:
-        token = AuthToken.objects.get(token=token_value)
-        return token.user
-    except AuthToken.DoesNotExist:
+        payload = jwt.decode(
+            token,
+            settings.JWT_SECRET_KEY,
+            algorithms=["HS256"],
+        )
+
+        if payload.get("type") != "access":
+            return None
+
+        return User.objects.get(id=payload["user_id"])
+
+    except (jwt.ExpiredSignatureError, jwt.DecodeError, User.DoesNotExist):
         return None
 
-@method_decorator(csrf_exempt, name='dispatch')
+@method_decorator(csrf_exempt, name="dispatch")
 class RegisterTeacherView(View):
     def post(self, request):
         data = json.loads(request.body)
 
         User.objects.create_user(
-            username=data['username'],
-            password=data['password']
+            username=data["username"],
+            password=data["password"],
         )
 
         return JsonResponse({"message": "Teacher registered successfully"})
 
-@method_decorator(csrf_exempt, name='dispatch')
+@method_decorator(csrf_exempt, name="dispatch")
 class LoginTeacherView(View):
     def post(self, request):
         data = json.loads(request.body)
 
         user = authenticate(
-            username=data['username'],
-            password=data['password']
+            username=data["username"],
+            password=data["password"],
         )
 
         if not user:
             return JsonResponse({"error": "Invalid credentials"}, status=401)
 
-        token, created = AuthToken.objects.get_or_create(user=user)
-
         return JsonResponse({
-            "message": "Login successful",
-            "token": token.token
+            "access_token": generate_access_token(user),
+            "refresh_token": generate_refresh_token(user),
         })
 
-@method_decorator(csrf_exempt, name='dispatch')
+
+@method_decorator(csrf_exempt, name="dispatch")
+class RefreshTokenView(View):
+    def post(self, request):
+        data = json.loads(request.body)
+        refresh_token = data.get("refresh_token")
+
+        try:
+            payload = jwt.decode(
+                refresh_token,
+                settings.JWT_SECRET_KEY,
+                algorithms=["HS256"],
+            )
+
+            if payload.get("type") != "refresh":
+                return JsonResponse({"error": "Invalid token"}, status=401)
+
+            user = User.objects.get(id=payload["user_id"])
+
+            return JsonResponse({
+                "access_token": generate_access_token(user)
+            })
+
+        except (jwt.ExpiredSignatureError, jwt.DecodeError, User.DoesNotExist):
+            return JsonResponse(
+                {"error": "Invalid or expired refresh token"},
+                status=401,
+            )
+
+@method_decorator(csrf_exempt, name="dispatch")
 class LogoutTeacherView(View):
     def post(self, request):
-        user = get_authenticated_user(request)
+        return JsonResponse({
+            "message": "Logout successful. Delete token on client."
+        })
 
-        if not user:
-            return JsonResponse({"error": "Unauthorized"}, status=401)
-
-        AuthToken.objects.filter(user=user).delete()
-        return JsonResponse({"message": "Logout successful"})
-
-@method_decorator(csrf_exempt, name='dispatch')
+@method_decorator(csrf_exempt, name="dispatch")
 class AddStudentView(View):
     def post(self, request):
         user = get_authenticated_user(request)
@@ -77,8 +133,8 @@ class AddStudentView(View):
 
         Student.objects.create(
             teacher=user,
-            name=data['name'],
-            roll_number=data['roll_number']
+            name=data["name"],
+            roll_number=data["roll_number"],
         )
 
         return JsonResponse({"message": "Student added"})
@@ -92,13 +148,13 @@ class ListStudentsView(View):
         students = Student.objects.filter(teacher=user)
         return JsonResponse(
             list(students.values("name", "roll_number")),
-            safe=False
+            safe=False,
         )
 
 
 
 
-@method_decorator(csrf_exempt, name='dispatch')
+@method_decorator(csrf_exempt, name="dispatch")
 class UpdateStudentView(View):
     def put(self, request, roll_number):
         user = get_authenticated_user(request)
@@ -110,18 +166,17 @@ class UpdateStudentView(View):
         try:
             student = Student.objects.get(
                 teacher=user,
-                roll_number=roll_number
+                roll_number=roll_number,
             )
         except Student.DoesNotExist:
             return JsonResponse({"error": "Student not found"}, status=404)
 
-        student.name = data['name']
+        student.name = data["name"]
         student.save()
 
         return JsonResponse({"message": "Student updated"})
 
-
-@method_decorator(csrf_exempt, name='dispatch')
+@method_decorator(csrf_exempt, name="dispatch")
 class DeleteStudentView(View):
     def delete(self, request, roll_number):
         user = get_authenticated_user(request)
@@ -131,7 +186,7 @@ class DeleteStudentView(View):
         try:
             student = Student.objects.get(
                 teacher=user,
-                roll_number=roll_number
+                roll_number=roll_number,
             )
         except Student.DoesNotExist:
             return JsonResponse({"error": "Student not found"}, status=404)

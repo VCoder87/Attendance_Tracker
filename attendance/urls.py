@@ -20,4 +20,6 @@ urlpatterns = [
     path('attendance/date/<str:date>/', AttendanceByDateView.as_view()),
     path('attendance/history/<str:roll_number>/', AttendanceHistoryView.as_view()),
     path('attendance/percentage/<str:roll_number>/', AttendancePercentageView.as_view()),
+    path("token/refresh/", RefreshTokenView.as_view()),
+
 ]
