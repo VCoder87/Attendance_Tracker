@@ -2,8 +2,7 @@
 
 A **robust, backend-only Student Attendance Management System** built with **Django** and **PostgreSQL**, featuring **token-based authentication**, **secure teacher isolation**, and **roll-number-based student management**.
 
-> 🚫 No Django REST Framework  
-> 🚫 No HTML / Frontend  
+ 
 > ✅ Pure Django backend  
 > ✅ Token Authentication  
 > ✅ Production-style architecture  
